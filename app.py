@@ -4,9 +4,8 @@ import os
 import time
 from gtts import gTTS
 
-# Importaciones simplificadas y estables para MoviePy v2.x
-from moviepy import ImageClip, AudioFileClip
-from moviepy.video.compositing import concatenate_videoclips
+# Importaciones clásicas de MoviePy (Estables y garantizadas con la versión 1.0.3)
+from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
 
 from PIL import Image
 from io import BytesIO
@@ -101,12 +100,12 @@ def crear_video_biblico(escenas, token, nombre_salida):
         img_path = f"{temp_dir}/image_{idx}.png"
         imagen.save(img_path)
         
-        # 3. Ensamblar Clip Individual usando sintaxis v2.x (.with_...)
+        # 3. Ensamblar Clip Individual usando sintaxis clásica (v1.x)
         audio_clip = AudioFileClip(audio_path)
         duracion = audio_clip.duration
         
-        video_clip = ImageClip(img_path).with_duration(duracion)
-        video_clip = video_clip.with_audio(audio_clip)
+        video_clip = ImageClip(img_path).set_duration(duracion)
+        video_clip = video_clip.set_audio(audio_clip)
         
         clips_de_video.append(video_clip)
         progreso.progress(int((idx + 1) / total_escenas * 100))
@@ -114,12 +113,12 @@ def crear_video_biblico(escenas, token, nombre_salida):
 
     status_text.write("🎥 Concatenando y renderizando el MP4 final...")
     
-    # Concatenación directa usando la función importada de manera segura
+    # Concatenación clásica y robusta
     video_final = concatenate_videoclips(clips_de_video, method="compose")
     
     path_final = f"{temp_dir}/{nombre_salida}"
     
-    # Exportación optimizada para servidores headless
+    # Exportación optimizada para la nube
     video_final.write_videofile(
         path_final, 
         fps=24, 
@@ -155,7 +154,7 @@ with st.expander("Ver pasajes que compondrán el video"):
 if st.button("🚀 Iniciar Generación de Video", disabled=not HF_TOKEN):
     with st.spinner("La IA está renderizando tus imágenes y locuciones. Esto puede demorar unos minutos..."):
         
-        # Multiplicamos por 3 las escenas para alcanzar los 2-3 minutos
+        # Multiplicamos por 3 las escenas para alcanzar la meta de los 2-3 minutos
         escenas_extendidas = escenas_seleccionadas * 3  
         nombre_archivo = f"{categoria.replace(' ', '_').replace(':', '')}.mp4"
         
