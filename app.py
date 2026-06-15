@@ -3,22 +3,29 @@ import requests
 import os
 import time
 from gtts import gTTS
-# Importaciones para MoviePy v2.x
+
+# Importaciones definitivas y corregidas para MoviePy v2.x
 from moviepy.video.VideoClip import ImageClip
 from moviepy.audio.io.AudioFileClip import AudioFileClip
-from moviepy.video.compositing.concatenate import concatenate_videoclips
+from moviepy.video.compositing.util import concatenate_videoclips
+
 from PIL import Image
 from io import BytesIO
 
-# Configuración de la página
+# Configuración de la página de Streamlit
 st.set_page_config(page_title="Creador de Videos Bíblicos", page_icon="📖", layout="wide")
 
 # ----------------------------------------------------------------------
 # CONFIGURACIÓN Y CONTENIDO BÍBLICO
 # ----------------------------------------------------------------------
 st.sidebar.title("Configuración de IA")
-# En Streamlit Cloud puedes usar st.secrets para no escribir el token cada vez
-HF_TOKEN = st.sidebar.text_input("Introduce tu Hugging Face Token (HF_...)", type="password")
+
+# Intenta leer desde Secrets, si no existe, muestra el campo en la barra lateral
+if "HF_TOKEN" in st.secrets:
+    HF_TOKEN = st.secrets["HF_TOKEN"]
+    st.sidebar.success("🔒 Token cargado desde los Secrets de Streamlit.")
+else:
+    HF_TOKEN = st.sidebar.text_input("Introduce tu Hugging Face Token (HF_...)", type="password")
 
 HISTORIAS = {
     "Génesis: La Creación": [
@@ -42,7 +49,7 @@ HISTORIAS = {
     "Evangelios: Los Milagros de Jesús": [
         "Jesús recorrió Galilea enseñando y sanando a toda clase de enfermos.",
         "En una tormenta en el mar, Jesús se levantó y le ordenó al viento y al agua que se calmaran.",
-        "Con solo cinco panes y dos peces, Jesús alimentó a más de $<$five_thousand$>$ personas.",
+        "Con solo cinco panes y dos peces, Jesús alimentó a más de cinco mil personas.",
         "Jesús demostró su poder sobre la muerte al resucitar a su amigo Lázaro."
     ]
 }
@@ -72,7 +79,7 @@ def crear_video_biblico(escenas, token, nombre_salida):
     progreso = st.progress(0)
     total_escenas = len(escenas)
     
-    # Directorio /tmp es el estándar seguro para escribir archivos en Streamlit Cloud
+    # Directorio temporal seguro para Linux en la nube
     temp_dir = "/tmp/video_gen"
     if not os.path.exists(temp_dir):
         os.makedirs(temp_dir)
@@ -82,12 +89,12 @@ def crear_video_biblico(escenas, token, nombre_salida):
     for idx, texto in enumerate(escenas):
         status_text.write(f"🎬 Procesando Escena {idx + 1}/{total_escenas}...")
         
-        # 1. Audio
+        # 1. Generar Audio (gTTS)
         audio_path = f"{temp_dir}/audio_{idx}.mp3"
         tts = gTTS(text=texto, lang='es', tld='com.mx')
         tts.save(audio_path)
         
-        # 2. Imagen
+        # 2. Generar Imagen (Hugging Face)
         prompt_imagen = f"Biblical scene: {texto}"
         imagen = query_hugging_face(prompt_imagen, token)
         if imagen is None:
@@ -96,7 +103,7 @@ def crear_video_biblico(escenas, token, nombre_salida):
         img_path = f"{temp_dir}/image_{idx}.png"
         imagen.save(img_path)
         
-        # 3. Clip individual (MoviePy v2.x syntax)
+        # 3. Ensamblar Clip Individual usando sintaxis v2.x (.with_...)
         audio_clip = AudioFileClip(audio_path)
         duracion = audio_clip.duration
         
@@ -105,23 +112,25 @@ def crear_video_biblico(escenas, token, nombre_salida):
         
         clips_de_video.append(video_clip)
         progreso.progress(int((idx + 1) / total_escenas * 100))
-        time.sleep(1)
+        time.sleep(1) # Respetar límites de la API gratuita
 
     status_text.write("🎥 Concatenando y renderizando el MP4 final...")
+    
+    # Concatenación usando el submódulo .util correctamente importado arriba
     video_final = concatenate_videoclips(clips_de_video, method="compose")
     
     path_final = f"{temp_dir}/{nombre_salida}"
     
-    # Renderizado compatible con entornos en la nube sin pantalla (headless)
+    # Exportación optimizada para servidores headless (sin monitor)
     video_final.write_videofile(
         path_final, 
         fps=24, 
         codec="libx264", 
         audio_codec="aac",
-        logger=None # Evita saturar los logs de Streamlit Cloud
+        logger=None # Evita saturar la consola de Streamlit Cloud
     )
     
-    # Limpieza de memoria
+    # Cierre de archivos para liberar memoria del servidor
     for clip in clips_de_video:
         clip.close()
     video_final.close()
@@ -133,10 +142,10 @@ def crear_video_biblico(escenas, token, nombre_salida):
 # ----------------------------------------------------------------------
 
 st.title("📖 Creador Automático de Videos Bíblicos")
-st.subheader("Generación gratuita de videos MP4 para tus proyectos o redes sociales.")
+st.subheader("Generación de videos MP4 optimizada para Streamlit Cloud.")
 
 if not HF_TOKEN:
-    st.warning("🔑 Introduce tu Token de Hugging Face en la barra lateral izquierda para empezar.")
+    st.warning("🔑 Introduce tu Token de Hugging Face en la barra lateral para desbloquear la aplicación.")
 
 categoria = st.selectbox("Selecciona la historia bíblica:", list(HISTORIAS.keys()))
 escenas_seleccionadas = HISTORIAS[categoria]
@@ -146,9 +155,9 @@ with st.expander("Ver pasajes que compondrán el video"):
         st.markdown(f"**Escena {i+1}:** {escena}")
 
 if st.button("🚀 Iniciar Generación de Video", disabled=not HF_TOKEN):
-    with st.spinner("La IA está trabajando en tus imágenes y narraciones. Esto tomará un par de minutos..."):
+    with st.spinner("La IA está renderizando tus imágenes y locuciones. Esto puede demorar unos minutos..."):
         
-        # Multiplicamos las escenas para estirar la duración hacia los 2-3 minutos
+        # Multiplicamos por 3 el bloque de texto para alcanzar la meta de los 2-3 minutos
         escenas_extendidas = escenas_seleccionadas * 3  
         nombre_archivo = f"{categoria.replace(' ', '_').replace(':', '')}.mp4"
         
@@ -157,10 +166,10 @@ if st.button("🚀 Iniciar Generación de Video", disabled=not HF_TOKEN):
         if video_resultado and os.path.exists(video_resultado):
             st.success("¡Tu video está listo! 🎉")
             
-            # Reproductor integrado
+            # Vista previa en la nube
             st.video(video_resultado)
             
-            # Descarga del archivo
+            # Botón de descarga directa
             with open(video_resultado, "rb") as file:
                 st.download_button(
                     label="⬇️ Descargar Video MP4",
