@@ -4,7 +4,7 @@ import os
 import time
 from gtts import gTTS
 
-# Importaciones clásicas de MoviePy (Estables y garantizadas con la versión 1.0.3)
+# Importaciones clásicas de MoviePy (Estables y garantizadas con la versión 1.0.3 en requirements.txt)
 from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
 
 from PIL import Image
@@ -56,27 +56,54 @@ HISTORIAS = {
 # ----------------------------------------------------------------------
 
 def query_hugging_face(prompt, token):
+    # Endpoint de la API de Inferencia de Hugging Face
     API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+    # Forzamos un estilo pictórico dramático y bíblico homogéneo
     style_prompt = f"Cinematic biblical art, dramatic lighting, detailed oil painting, highly realistic, masterwork, {prompt}"
     
-    try:
-        response = requests.post(API_URL, headers=headers, json={"inputs": style_prompt}, timeout=30)
-        if response.status_code == 200:
-            return Image.open(BytesIO(response.content))
-        else:
-            st.error(f"Error de API ({response.status_code}): {response.text}")
+    max_intentos = 3
+    for intento in range(max_intentos):
+        try:
+            response = requests.post(
+                API_URL, 
+                headers=headers, 
+                json={"inputs": style_prompt}, 
+                timeout=45  # Tiempo amplio para asimilar la petición
+            )
+            
+            # Código 503 significa que el modelo se está encendiendo/cargando en la infraestructura de HF
+            if response.status_code == 503:
+                time.sleep(10)
+                continue
+                
+            if response.status_code == 200:
+                return Image.open(BytesIO(response.content))
+            else:
+                st.error(f"Error de API Hugging Face (Código {response.status_code}): {response.text}")
+                return None
+                
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+            if intento < max_intentos - 1:
+                st.warning(f"⚠️ Dificultad de red en la nube. Reintentando ({intento + 1}/{max_intentos})...")
+                time.sleep(5)
+            else:
+                st.error("❌ Error de red persistente con el DNS de la plataforma. Por favor, reinicia la app con 'Reboot' desde el menú inferior derecho si el error persiste.")
+                return None
+        except Exception as e:
+            st.error(f"Error inesperado: {e}")
             return None
-    except Exception as e:
-        st.error(f"Error de conexión con Hugging Face: {e}")
-        return None
+    return None
 
 def crear_video_biblico(escenas, token, nombre_salida):
     clips_de_video = []
     progreso = st.progress(0)
     total_escenas = len(escenas)
     
-    # Directorio temporal seguro para Linux en la nube
+    # Directorio seguro en contenedores Linux (Streamlit Cloud)
     temp_dir = "/tmp/video_gen"
     if not os.path.exists(temp_dir):
         os.makedirs(temp_dir)
@@ -109,25 +136,24 @@ def crear_video_biblico(escenas, token, nombre_salida):
         
         clips_de_video.append(video_clip)
         progreso.progress(int((idx + 1) / total_escenas * 100))
-        time.sleep(1) # Respetar límites de la API gratuita
+        time.sleep(1.5) # Pausa obligatoria para no saturar la API gratuita de HF
 
     status_text.write("🎥 Concatenando y renderizando el MP4 final...")
     
-    # Concatenación clásica y robusta
+    # Concatenación robusta
     video_final = concatenate_videoclips(clips_de_video, method="compose")
-    
     path_final = f"{temp_dir}/{nombre_salida}"
     
-    # Exportación optimizada para la nube
+    # Renderizado headless
     video_final.write_videofile(
         path_final, 
         fps=24, 
         codec="libx264", 
         audio_codec="aac",
-        logger=None
+        logger=None # Limpia logs innecesarios de la consola de Streamlit
     )
     
-    # Cierre de archivos para liberar memoria
+    # Liberar memoria física del servidor
     for clip in clips_de_video:
         clip.close()
     video_final.close()
@@ -152,9 +178,9 @@ with st.expander("Ver pasajes que compondrán el video"):
         st.markdown(f"**Escena {i+1}:** {escena}")
 
 if st.button("🚀 Iniciar Generación de Video", disabled=not HF_TOKEN):
-    with st.spinner("La IA está renderizando tus imágenes y locuciones. Esto puede demorar unos minutos..."):
+    with st.spinner("La IA está renderizando tus imágenes y locuciones. Esto tomará unos minutos..."):
         
-        # Multiplicamos por 3 las escenas para alcanzar la meta de los 2-3 minutos
+        # Duplicamos la secuencia de escenas para estirar la duración del video final a 2-3 minutos
         escenas_extendidas = escenas_seleccionadas * 3  
         nombre_archivo = f"{categoria.replace(' ', '_').replace(':', '')}.mp4"
         
@@ -163,8 +189,10 @@ if st.button("🚀 Iniciar Generación de Video", disabled=not HF_TOKEN):
         if video_resultado and os.path.exists(video_resultado):
             st.success("¡Tu video está listo! 🎉")
             
+            # Reproductor de video incorporado en la app
             st.video(video_resultado)
             
+            # Botón de descarga final para el usuario
             with open(video_resultado, "rb") as file:
                 st.download_button(
                     label="⬇️ Descargar Video MP4",
