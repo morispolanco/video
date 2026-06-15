@@ -2,9 +2,10 @@ import streamlit as st
 import requests
 import os
 import time
+import urllib.parse
 from gtts import gTTS
 
-# Importaciones clásicas de MoviePy (Estables con versión 1.0.3)
+# Importaciones clásicas de MoviePy (Estables con versión 1.0.3 en requirements.txt)
 from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
 
 from PIL import Image
@@ -14,17 +15,10 @@ from io import BytesIO
 st.set_page_config(page_title="Creador de Videos Bíblicos", page_icon="📖", layout="wide")
 
 # ----------------------------------------------------------------------
-# CONFIGURACIÓN Y CONTENIDO BÍBLICO
+# CONTENIDO BÍBLICO Y TRADUCCIONES
 # ----------------------------------------------------------------------
-st.sidebar.title("Configuración de IA")
 
-if "HF_TOKEN" in st.secrets:
-    HF_TOKEN = st.secrets["HF_TOKEN"]
-    st.sidebar.success("🔒 Token cargado desde los Secrets de Streamlit.")
-else:
-    HF_TOKEN = st.sidebar.text_input("Introduce tu Hugging Face Token (HF_...)", type="password")
-
-# Traducción en inglés hiper-optimizada para que la IA responda al instante
+# Mapeo en inglés para que los servidores de Pollinations generen arte espectacular
 DICCIONARIO_TRADUCCION = {
     "En el principio, Dios creó los cielos y la tierra, y todo estaba en oscuridad.": "In the beginning, God created the heavens and the earth, deep space cosmic dark void, cinematic biblical art",
     "Entonces Dios dijo: Sea la luz, y la luz separó el día de la noche.": "God saying let there be light, holy divine light splitting the dark night, creation of universe",
@@ -72,57 +66,36 @@ HISTORIAS = {
 }
 
 # ----------------------------------------------------------------------
-# FUNCIONES DE GENERACIÓN
+# FUNCIONES DE GENERACIÓN (POLLINATIONS API)
 # ----------------------------------------------------------------------
 
-def query_hugging_face(prompt_es, token):
-    # Usamos ByteDance/SDXL-Lightning porque genera imágenes brutales en 1-2 segundos.
-    # Esto reduce los errores de Timeout a cero en la API de Inferencia gratuita.
-    API_URL = "https://api-inference.huggingface.co/models/ByteDance/SDXL-Lightning"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-    
+def query_pollinations(prompt_es):
+    """Genera imágenes usando la infraestructura ilimitada de Pollinations.ai"""
     prompt_en = DICCIONARIO_TRADUCCION.get(prompt_es, f"Biblical illustration of: {prompt_es}")
+    
+    # Inyectamos parámetros de calidad artística e indicamos relación de aspecto 16:9 para video (1024x576)
     style_prompt = f"Cinematic biblical art, dramatic lighting, epic historical oil painting, highly detailed, masterwork, {prompt_en}"
     
-    max_intentos = 4
+    # Codificar el texto para URL de forma segura
+    prompt_encoded = urllib.parse.quote(style_prompt)
+    
+    # Endpoint público de Pollinations usando el modelo estable de Flux
+    url = f"https://image.pollinations.ai/p/{prompt_encoded}?width=1024&height=576&model=flux&nologo=true"
+    
+    max_intentos = 3
     for intento in range(max_intentos):
         try:
-            response = requests.post(
-                API_URL, 
-                headers=headers, 
-                json={"inputs": style_prompt}, 
-                timeout=30
-            )
-            
-            # Error 503: El modelo se está cargando en Hugging Face
-            if response.status_code == 503:
-                time.sleep(15)
-                continue
-                
-            # Error 429: Exceso de peticiones (Rate Limit)
-            if response.status_code == 429:
-                st.warning(f"⏳ Hugging Face está ocupado. Esperando 15 segundos para reintentar ({intento+1}/{max_intentos})...")
-                time.sleep(15)
-                continue
-                
+            response = requests.get(url, timeout=30)
             if response.status_code == 200:
                 return Image.open(BytesIO(response.content))
             else:
-                st.error(f"Error técnico de la API ({response.status_code}): {response.text}")
-                return None
-                
-        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
-            if intento < max_intentos - 1:
-                st.warning(f"⚠️ Fluctuación de red detectada. Reintentando escena en 8 segundos...")
-                time.sleep(8)
-            else:
-                return None
+                time.sleep(3)
+        except Exception:
+            time.sleep(3)
+            
     return None
 
-def crear_video_biblico(escenas, token, nombre_salida):
+def crear_video_biblico(escenas, nombre_salida):
     clips_de_video = []
     progreso = st.progress(0)
     total_escenas = len(escenas)
@@ -141,10 +114,10 @@ def crear_video_biblico(escenas, token, nombre_salida):
         tts = gTTS(text=texto, lang='es', tld='com.mx')
         tts.save(audio_path)
         
-        # 2. Generar Imagen (Hugging Face)
-        imagen = query_hugging_face(texto, token)
+        # 2. Generar Imagen (Pollinations - Rápido y Estable)
+        imagen = query_pollinations(texto)
         if imagen is None:
-            status_text.error(f"⛔ El proceso se detuvo en la Escena {idx+1} porque la API gratuita de Hugging Face está muy saturada en este momento. Prueba de nuevo en unos minutos.")
+            status_text.error(f"⛔ Error crítico al obtener la imagen de la Escena {idx+1}. Interrumpiendo.")
             return None
             
         img_path = f"{temp_dir}/image_{idx}.png"
@@ -160,10 +133,10 @@ def crear_video_biblico(escenas, token, nombre_salida):
         clips_de_video.append(video_clip)
         progreso.progress(int((idx + 1) / total_escenas * 100))
         
-        # DESCANSO CRUCIAL: Dejamos pasar 5 segundos para que Hugging Face no bloquee la app
-        time.sleep(5)
+        # Un pequeño respiro técnico de un segundo es suficiente para Pollinations
+        time.sleep(1)
 
-    status_text.write("🎥 Ensamblando todos los clips en el archivo MP4 final...")
+    status_text.write("🎥 Ensamblando todos los clips en el archivo MP4 final (2-3 minutos)...")
     
     video_final = concatenate_videoclips(clips_de_video, method="compose")
     path_final = f"{temp_dir}/{nombre_salida}"
@@ -187,29 +160,28 @@ def crear_video_biblico(escenas, token, nombre_salida):
 # ----------------------------------------------------------------------
 
 st.title("📖 Creador Automático de Videos Bíblicos")
-st.subheader("Generación optimizada contra caídas de red y bloqueos de API.")
+st.subheader("Versión estable e ilimitada de alto rendimiento (Sin Tokens).")
 
-if not HF_TOKEN:
-    st.warning("🔑 Introduce tu Token de Hugging Face en la barra lateral para activar la aplicación.")
+st.info("💡 Esta versión utiliza servidores alternativos optimizados. No necesitas configurar claves ni tokens en la barra lateral.")
 
-categoria = st.selectbox("Selecciona la historia bíblica:", list(HISTORIAS.keys()))
+categoria = st.selectbox("Selecciona la historia bíblica para el video largo:", list(HISTORIAS.keys()))
 escenas_seleccionadas = HISTORIAS[categoria]
 
-with st.expander("Ver pasajes que compondrán el video"):
+with st.expander("Ver pasajes cronológicos que compondrán el video"):
     for i, escena in enumerate(escenas_seleccionadas):
         st.markdown(f"**Escena {i+1}:** {escena}")
 
-if st.button("🚀 Iniciar Generación de Video", disabled=not HF_TOKEN):
-    with st.spinner("La IA está renderizando las imágenes y locuciones. Por favor, ten paciencia..."):
+if st.button("🚀 Iniciar Generación de Video"):
+    with st.spinner("La IA está renderizando las imágenes y locuciones simultáneamente. Por favor, espera..."):
         
-        # Multiplicamos la lista para alcanzar el objetivo de 2 a 3 minutos de duración
+        # Multiplicamos la secuencia x3 para alcanzar cómodamente la meta de 2 a 3 minutos
         escenas_extendidas = escenas_seleccionadas * 3  
         nombre_archivo = f"{categoria.replace(' ', '_').replace(':', '')}.mp4"
         
-        video_resultado = crear_video_biblico(escenas_extendidas, HF_TOKEN, nombre_archivo)
+        video_resultado = crear_video_biblico(escenas_extendidas, nombre_archivo)
         
         if video_resultado and os.path.exists(video_resultado):
-            st.success("¡Tu video completo en MP4 ha sido generado! 🎉")
+            st.success("¡Tu video completo en MP4 ha sido generado exitosamente! 🎉")
             st.video(video_resultado)
             
             with open(video_resultado, "rb") as file:
