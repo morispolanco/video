@@ -1,5 +1,5 @@
 streamlit
 gTTS
-moviepy>=2.0.0
+moviepy==1.0.3
 requests
 pillow
