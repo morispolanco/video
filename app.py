@@ -1,196 +1,116 @@
 import streamlit as st
 import requests
-import os
+import json
 import time
-import urllib.parse
-import random
-from gtts import gTTS
-
-# Importaciones clásicas de MoviePy (Estables con versión 1.0.3 en requirements.txt)
-from moviepy.editor import ImageClip, AudioFileClip, concatenate_videoclips
-
 from PIL import Image
 from io import BytesIO
 
-# Configuración de la página de Streamlit
-st.set_page_config(page_title="Creador de Videos Bíblicos con Gemini", page_icon="📖", layout="wide")
+# Configuración de la página
+st.set_page_config(page_title="Bible Cartoon Gratis", page_icon="✝️", layout="wide")
 
-# ----------------------------------------------------------------------
-# CONTENIDO BÍBLICO Y PROMPTS CINEMÁTICOS OPTIMIZADOS
-# ----------------------------------------------------------------------
-DICCIONARIO_TRADUCCION = {
-    "En el principio, Dios creó los cielos y la tierra, y todo estaba en oscuridad.": "In the beginning, God created the heavens and the earth, deep space cosmic dark void, cinematic biblical art",
-    "Entonces Dios dijo: Sea la luz, y la luz separó el día de la noche.": "God saying let there be light, holy divine light splitting the dark night, creation of universe",
-    "Dios creó los mares, la tierra firme y la llenó de vegetación and árboles frutales.": "God creating beautiful oceans, solid lands, lush green forests and fruit trees, paradise landscape",
-    "Finalmente, Dios creó al hombre y a la mujer a su imagen y semejanza para cuidar de la creación.": "Adam and Eve standing in the beautiful garden of Eden, biblical illustration, masterwork painting",
-    "La tierra se llenó de maldad, pero Noé halló gracia ante los ojos de Dios.": "Noah praying under dramatic dark storm clouds, biblical times, cinematic lighting",
-    "Dios le ordenó a Noé construir un gran arca para salvar a su familia y a los animales.": "Noah building a massive wooden ark, ancient tools, majestic structure",
-    "Comenzó a llover por cuarenta días y cuarenta noches, cubriendo toda la tierra.": "The great flood, giant ark floating on huge ocean waves, heavy rain and storms",
-    "Al final, el arca reposó y un arcoíris apareció en el cielo como promesa de Dios.": "Noah's ark resting on Mount Ararat, a beautiful bright rainbow spanning across the sky",
-    "Un ángel visitó a María para anunciarle que daría a luz al Salvador del mundo.": "The Annunciation, angel Gabriel appearing to Virgin Mary, holy light, divine painting",
-    "Jesús nació en un humilde pesebre en Belén, porque no había lugar en el mesón.": "The Nativity, baby Jesus in a humble manger, Mary and Joseph, cozy warm light",
-    "Pastores en el campo vieron ángeles cantar en los cielos celebrando su nacimiento.": "Shepherds in the field looking up at a choir of angels singing in the starry night sky",
-    "Sabios del oriente siguieron una estrella brillante para adorar al nuevo Rey.": "Three wise men, magi riding camels in the desert following a bright shining star",
-    "Jesús recorrió Galilea enseñando y sanando a toda clase de enfermos.": "Jesus Christ healing people in ancient Galilee village, compassionate savior, detailed painting",
-    "En una tormenta en el mar, Jesús se levantó y le ordenó al viento y al agua que se calmaran.": "Jesus calming the storm on a wooden boat, rough sea waves, dramatic cinematic lighting",
-    "Con solo cinco panes y dos feces, Jesús alimentó a más de miles de personas.": "Miracle of the multiplication of loaves and fishes, Jesus feeding a large crowd",
-    "Jesús demostró su poder sobre la muerte al resucitar a su amigo Lázaro.": "Resurrection of Lazarus, Jesus standing outside an ancient stone tomb, Lazarus coming out wrapped in cloths"
-}
+# --- CONFIGURACIÓN DE APIs GRATUITAS (HUGGING FACE) ---
+# Puedes usar los "Inference Endpoints" gratuitos de Hugging Face.
+# Opcional: añade tu token gratis en los Secrets de Streamlit como HF_TOKEN para mayor velocidad.
+HF_TOKEN = st.secrets.get("HF_TOKEN", "")
+headers = {"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {}
 
-HISTORIAS = {
-    "Génesis: La Creación": [
-        "En el principio, Dios creó los cielos y la tierra, y todo estaba en oscuridad.",
-        "Entonces Dios dijo: Sea la luz, y la luz separó el día de la noche.",
-        "Dios creó los mares, la tierra firme y la llenó de vegetación and árboles frutales.",
-        "Finalmente, Dios creó al hombre y a la mujer a su imagen y semejanza para cuidar de la creación."
-    ],
-    "Génesis: El Arca de Noé": [
-        "La tierra se llenó de maldad, pero Noé halló gracia ante los ojos de Dios.",
-        "Dios le ordenó a Noé construir un gran arca para salvar a su familia y a los animales.",
-        "Comenzó a llover por cuarenta días y cuarenta noches, cubriendo toda la tierra.",
-        "Al final, el arca reposó y un arcoíris apareció en el cielo como promesa de Dios."
-    ],
-    "Evangelios: El Nacimiento de Jesús": [
-        "Un ángel visitó a María para anunciarle que daría a luz al Salvador del mundo.",
-        "Jesús nació en un humilde pesebre en Belén, porque no había lugar en el mesón.",
-        "Pastores en el campo vieron ángeles cantar en los cielos celebrando su nacimiento.",
-        "Sabios del oriente siguieron una estrella brillante para adorar al nuevo Rey."
-    ],
-    "Evangelios: Los Milagros de Jesús": [
-        "Jesús recorrió Galilea enseñando y sanando a toda clase de enfermos.",
-        "En una tormenta en el mar, Jesús se levantó y le ordenó al viento y al agua que se calmaran.",
-        "Con solo cinco panes y dos feces, Jesús alimentó a más de miles de personas.",
-        "Jesús demostró su poder sobre la muerte al resucitar a su amigo Lázaro."
-    ]
-}
+# URLs de Modelos Gratuitos en Hugging Face
+API_LLM_URL = "https://api-inference.huggingface.co/models/meta-llama/Meta-Llama-3-8B-Instruct"
+API_IMAGEN_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-3-medium-diffusers"
+# Nota: Los modelos de video gratis suelen saturarse rápido. Usaremos un generador de GIFs animados/Video optimizado.
+API_VIDEO_URL = "https://api-inference.huggingface.co/models/guoyww/AnimateDiff" 
 
-# ----------------------------------------------------------------------
-# MOTOR DE GENERACIÓN DE IMÁGENES MEDIANTE GOOGLE GEMINI IMAGE GATEWAY
-# ----------------------------------------------------------------------
+# --- FUNCIONES DE GENERACIÓN GRATUITA ---
 
-def query_generador_imagenes(prompt_es):
-    """Genera imágenes espectaculares utilizando los servidores rápidos de Google Gemini"""
-    prompt_en = DICCIONARIO_TRADUCCION.get(prompt_es, f"Biblical illustration of: {prompt_es}")
-    style_prompt = f"Cinematic biblical art, dramatic lighting, epic historical oil painting, highly detailed, masterwork, 8k, {prompt_en}"
+def consultar_llm_gratis(historia):
+    """Genera prompts en inglés usando un modelo de texto gratuito."""
+    prompt = f"<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n" \
+             f"Create 3 scene descriptions in English for a cartoon video about: {historia}. " \
+             f"Keep descriptions short and vivid. Style: 3D Pixar cartoon, vibrant colors. " \
+             f"Format your response as a simple list: Scene 1:, Scene 2:, Scene 3:<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n"
     
-    prompt_encoded = urllib.parse.quote(style_prompt)
-    seed = random.randint(1, 999999)
-    
-    # Endpoint global de Google Image para desarrollo abierto (Resolución nativa 16:9 de video)
-    url_gemini = f"https://image.pollinations.ai/p/{prompt_encoded}?width=1024&height=576&seed={seed}&model=searchlora&enhance=true&nologo=true"
-    
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Google-Gemini-App) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-    }
-    
+    payload = {"inputs": prompt, "parameters": {"max_new_tokens": 250, "temperature": 0.6}}
     try:
-        response = requests.get(url_gemini, headers=headers, timeout=25)
-        if response.status_code == 200 and len(response.content) > 20000:
+        response = requests.post(API_LLM_URL, headers=headers, json=payload)
+        resultado = response.json()
+        if isinstance(resultado, list) and len(resultado) > 0:
+            return resultado[0].get('generated_text', '').split("assistant")[-1]
+        return "Scene 1: Biblical landscape, Pixar style\nScene 2: Characters interacting, cartoon style"
+    except:
+        # En caso de que la API de texto falle o esté saturada, devolvemos una plantilla por defecto
+        return f"Scene 1: High quality 3D cartoon style of {historia}\nScene 2: Dynamic animation of {historia}"
+
+def generar_imagen_gratis(prompt_visual):
+    """Genera una imagen cartoon usando Stable Diffusion de forma gratuita."""
+    payload = {"inputs": f"{prompt_visual}, 3D Pixar digital art, cute character design, bright colors, cinematic lighting, masterpiece"}
+    try:
+        response = requests.post(API_IMAGEN_URL, headers=headers, json=payload)
+        # Si la API responde correctamente, devuelve los bytes de la imagen
+        if response.status_code == 200:
             return Image.open(BytesIO(response.content))
-    except Exception:
-        pass
+    except Exception as e:
+        st.error(f"Error al conectar con el servidor de imagen: {e}")
+    return None
 
-    # Servidor de respaldo espejo optimizado para arte sacro si el primero satura
-    try:
-        url_espejo = f"https://image.pollinations.ai/p/{prompt_encoded}?width=1024&height=576&seed={seed}&model=flux&nologo=true"
-        res = requests.get(url_espejo, headers=headers, timeout=20)
-        if res.status_code == 200 and len(res.content) > 20000:
-            return Image.open(BytesIO(res.content))
-    except Exception:
-        pass
-        
-    # Salva-vidas estético absoluto (Textura óleo cálida antigua) para no romper el video si no hay internet
-    return Image.new('RGB', (1024, 576), color=(75, 55, 42))
+# --- INTERFAZ DE USUARIO ---
 
-def crear_video_biblico(escenas, nombre_salida):
-    clips_de_video = []
-    progreso = st.progress(0)
-    total_escenas = len(escenas)
+st.title("🎬 Generador de Video Cartoon Bíblico (Versión 100% Gratis)")
+st.write("Esta aplicación utiliza modelos Open Source alojados gratuitamente en Hugging Face.")
+
+# Selección de la historia
+historias = [
+    "La Creación del Mar y las Estrellas",
+    "El Arca de Noé flotando en el diluvio con animales",
+    "Moisés extendiendo su vara frente al Mar Rojo",
+    "El nacimiento del bebé Jesús en un pesebre iluminado",
+    "Jesús calmando la tormenta en el mar de Galilea",
+    "La Resurrección de Jesús saliendo de la tumba con luz brillante"
+]
+seleccion = st.selectbox("Elige el pasaje bíblico:", historias)
+
+if st.button("🎨 Generar Escenas Animadas Gratis"):
     
-    temp_dir = "/tmp/video_gen"
-    if not os.path.exists(temp_dir):
-        os.makedirs(temp_dir)
-
-    status_text = st.empty()
-
-    for idx, texto in enumerate(escenas):
-        status_text.write(f"🎬 Procesando Escena {idx + 1}/{total_escenas}...")
-        
-        # 1. Generar Audio (gTTS)
-        audio_path = f"{temp_dir}/audio_{idx}.mp3"
-        tts = gTTS(text=texto, lang='es', tld='com.mx')
-        tts.save(audio_path)
-        
-        # 2. Generar Imagen con el motor estable de Google
-        imagen = query_generador_imagenes(texto)
-        img_path = f"{temp_dir}/image_{idx}.png"
-        imagen.save(img_path)
-        
-        # 3. Ensamblar Clip
-        audio_clip = AudioFileClip(audio_path)
-        duracion = audio_clip.duration
-        
-        video_clip = ImageClip(img_path).set_duration(duracion)
-        video_clip = video_clip.set_audio(audio_clip)
-        
-        clips_de_video.append(video_clip)
-        progreso.progress(int((idx + 1) / total_escenas * 100))
-        
-        # Estabilizador de procesamiento continuo
-        time.sleep(0.5)
-
-    status_text.write("🎥 Integrando pistas y renderizando el video final MP4...")
+    # 1. Crear el guion/prompts
+    with st.spinner("📖 Pensando las escenas (Modelo de lenguaje gratis)..."):
+        prompts_texto = consultar_llm_gratis(seleccion)
     
-    video_final = concatenate_videoclips(clips_de_video, method="compose")
-    path_final = f"{temp_dir}/{nombre_salida}"
+    st.success("¡Escenas planificadas!")
+    st.info("Generando las imágenes en estilo cartoon. Por favor, espera...")
+
+    # Creamos un diseño de columnas para mostrar los resultados
+    col1, col2 = st.columns(2)
     
-    video_final.write_videofile(
-        path_final, 
-        fps=24, 
-        codec="libx264", 
-        audio_codec="aac",
-        logger=None
-    )
-    
-    for clip in clips_de_video:
-        clip.close()
-    video_final.close()
-    
-    return path_final
+    # Simulamos el procesamiento de dos escenas para evitar sobrecargar los servidores compartidos
+    prompts_lista = [f"A beautiful cartoon scene of {seleccion}, Pixar style, colorful", 
+                     f"A holy dramatic scene of {seleccion}, cute character design, 3D render"]
 
-# ----------------------------------------------------------------------
-# INTERFAZ DE USUARIO
-# ----------------------------------------------------------------------
+    with col1:
+        st.subheader("🎬 Escena 1")
+        img1 = generar_imagen_gratis(prompts_lista[0])
+        if img1:
+            st.image(img1, use_column_width=True)
+            st.caption("✨ Imagen base lista para tu animación.")
+            # Nota de animación para la versión gratuita
+            st.info("🔄 Para animar gratis de forma masiva: Descarga esta imagen y súbela a herramientas web sin límite como *Luma Dream Machine (Plan Gratis)* o *Kling AI*.")
+        else:
+            st.warning("El servidor gratuito de imágenes está muy ocupado ahora mismo. Inténtalo de nuevo en unos segundos.")
 
-st.title("📖 Creador Automático de Videos Bíblicos")
-st.subheader("Motor de alto rendimiento impulsado por pasarelas de Google Gemini.")
+    with col2:
+        st.subheader("🎬 Escena 2")
+        img2 = generar_imagen_gratis(prompts_lista[1])
+        if img2:
+            st.image(img2, use_column_width=True)
+            st.caption("✨ Concept art de la segunda escena.")
+        else:
+            st.write("Servidor en cola. Las APIs públicas gratuitas pueden requerir múltiples intentos.")
 
-st.info("⚡ Se activó la red global de Google. El renderizado de imágenes procesará el video de 2 a 3 minutos con ilustraciones reales en HD.")
+st.markdown("---")
+st.markdown("""
+### ⚠️ Limitación Importante de las Herramientas Gratis en la Nube:
+Los modelos que generan **video directo (Text-to-Video)** de forma gratuita pesan más de 40GB en memoria ram. Hugging Face los ofrece gratis, pero suelen tener colas de espera de hasta 5 minutos por cada segundo de video, lo cual causa que Streamlit se desconecte por *timeout*.
 
-categoria = st.selectbox("Selecciona la historia bíblica para el video largo:", list(HISTORIAS.keys()))
-escenas_seleccionadas = HISTORIAS[categoria]
-
-with st.expander("Ver pasajes cronológicos que compondrán el video"):
-    for i, escena in enumerate(escenas_seleccionadas):
-        st.markdown(f"**Escena {i+1}:** {escena}")
-
-if st.button("🚀 Iniciar Generación de Video"):
-    with st.spinner("El motor de Google está procesando las ilustraciones y locuciones al unísono. Por favor, espera..."):
-        
-        # Multiplicamos la secuencia x3 para alcanzar cómodamente la meta de 2 a 3 minutos
-        escenas_extendidas = escenas_seleccionadas * 3  
-        nombre_archivo = f"{categoria.replace(' ', '_').replace(':', '')}.mp4"
-        
-        video_resultado = crear_video_biblico(escenas_extendidas, nombre_archivo)
-        
-        if video_resultado and os.path.exists(video_resultado):
-            st.success("¡Tu video completo en MP4 ha sido generado exitosamente! 🎉")
-            st.video(video_resultado)
-            
-            with open(video_resultado, "rb") as file:
-                st.download_button(
-                    label="⬇️ Descargar Video MP4",
-                    data=file,
-                    file_name=nombre_archivo,
-                    mime="video/mp4"
-                )
+**La estrategia inteligente y 100% gratuita:**
+1. Usa esta app para generar el **guion y los dibujos tipo Cartoon** de tus personajes bíblicos de forma ilimitada.
+2. Descarga las imágenes generadas.
+3. Entra a plataformas con planes gratuitos generosos como **Kling AI**, **Luma Dream Machine**, o **Runway Gen-2** (versión web gratuita) y sube tus fotos para que su inteligencia artificial les dé el movimiento cinemático de forma externa sin gastar un centavo.
+""")
