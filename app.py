@@ -57,7 +57,7 @@ HISTORIAS = {
 
 def query_hugging_face(prompt, token):
     # Endpoint de la API de Inferencia de Hugging Face
-    API_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0"
+    API_URL = "API_URL = "https://api-inference.huggingface.co/models/SG161222/RealVisXL_V4.0"
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
