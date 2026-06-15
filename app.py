@@ -4,10 +4,9 @@ import os
 import time
 from gtts import gTTS
 
-# Importaciones definitivas y corregidas para MoviePy v2.x
-from moviepy.video.VideoClip import ImageClip
-from moviepy.audio.io.AudioFileClip import AudioFileClip
-from moviepy.video.compositing.util import concatenate_videoclips
+# Importaciones simplificadas y estables para MoviePy v2.x
+from moviepy import ImageClip, AudioFileClip
+from moviepy.video.compositing import concatenate_videoclips
 
 from PIL import Image
 from io import BytesIO
@@ -20,7 +19,6 @@ st.set_page_config(page_title="Creador de Videos Bíblicos", page_icon="📖", l
 # ----------------------------------------------------------------------
 st.sidebar.title("Configuración de IA")
 
-# Intenta leer desde Secrets, si no existe, muestra el campo en la barra lateral
 if "HF_TOKEN" in st.secrets:
     HF_TOKEN = st.secrets["HF_TOKEN"]
     st.sidebar.success("🔒 Token cargado desde los Secrets de Streamlit.")
@@ -116,21 +114,21 @@ def crear_video_biblico(escenas, token, nombre_salida):
 
     status_text.write("🎥 Concatenando y renderizando el MP4 final...")
     
-    # Concatenación usando el submódulo .util correctamente importado arriba
+    # Concatenación directa usando la función importada de manera segura
     video_final = concatenate_videoclips(clips_de_video, method="compose")
     
     path_final = f"{temp_dir}/{nombre_salida}"
     
-    # Exportación optimizada para servidores headless (sin monitor)
+    # Exportación optimizada para servidores headless
     video_final.write_videofile(
         path_final, 
         fps=24, 
         codec="libx264", 
         audio_codec="aac",
-        logger=None # Evita saturar la consola de Streamlit Cloud
+        logger=None
     )
     
-    # Cierre de archivos para liberar memoria del servidor
+    # Cierre de archivos para liberar memoria
     for clip in clips_de_video:
         clip.close()
     video_final.close()
@@ -157,7 +155,7 @@ with st.expander("Ver pasajes que compondrán el video"):
 if st.button("🚀 Iniciar Generación de Video", disabled=not HF_TOKEN):
     with st.spinner("La IA está renderizando tus imágenes y locuciones. Esto puede demorar unos minutos..."):
         
-        # Multiplicamos por 3 el bloque de texto para alcanzar la meta de los 2-3 minutos
+        # Multiplicamos por 3 las escenas para alcanzar los 2-3 minutos
         escenas_extendidas = escenas_seleccionadas * 3  
         nombre_archivo = f"{categoria.replace(' ', '_').replace(':', '')}.mp4"
         
@@ -166,10 +164,8 @@ if st.button("🚀 Iniciar Generación de Video", disabled=not HF_TOKEN):
         if video_resultado and os.path.exists(video_resultado):
             st.success("¡Tu video está listo! 🎉")
             
-            # Vista previa en la nube
             st.video(video_resultado)
             
-            # Botón de descarga directa
             with open(video_resultado, "rb") as file:
                 st.download_button(
                     label="⬇️ Descargar Video MP4",
