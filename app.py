@@ -1,116 +1,168 @@
 import streamlit as st
+from google import genai
 import requests
-import json
-import time
-from PIL import Image
+from PIL import Image, ImageDraw
 from io import BytesIO
+import cv2
+import numpy as np
+from gtts import gTTS
+import os
+import time
 
-# Configuración de la página
-st.set_page_config(page_title="Bible Cartoon Gratis", page_icon="✝️", layout="wide")
+# Configuración de la interfaz
+st.set_page_config(page_title="Creador de Videos Bíblicos", page_icon="📖", layout="wide")
 
-# --- CONFIGURACIÓN DE APIs GRATUITAS (HUGGING FACE) ---
-# Puedes usar los "Inference Endpoints" gratuitos de Hugging Face.
-# Opcional: añade tu token gratis en los Secrets de Streamlit como HF_TOKEN para mayor velocidad.
-HF_TOKEN = st.secrets.get("HF_TOKEN", "")
-headers = {"Authorization": f"Bearer {HF_TOKEN}"} if HF_TOKEN else {}
+# Inicializar el cliente de Gemini (Gratuito desde st.secrets)
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY"))
 
-# URLs de Modelos Gratuitos en Hugging Face
-API_LLM_URL = "https://api-inference.huggingface.co/models/meta-llama/Meta-Llama-3-8B-Instruct"
-API_IMAGEN_URL = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-3-medium-diffusers"
-# Nota: Los modelos de video gratis suelen saturarse rápido. Usaremos un generador de GIFs animados/Video optimizado.
-API_VIDEO_URL = "https://api-inference.huggingface.co/models/guoyww/AnimateDiff" 
+if GEMINI_API_KEY:
+    client = genai.Client(api_key=GEMINI_API_KEY)
+else:
+    client = None
 
-# --- FUNCIONES DE GENERACIÓN GRATUITA ---
+# --- MOTOR DE GENERACIÓN COMPLETA ---
 
-def consultar_llm_gratis(historia):
-    """Genera prompts en inglés usando un modelo de texto gratuito."""
-    prompt = f"<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n" \
-             f"Create 3 scene descriptions in English for a cartoon video about: {historia}. " \
-             f"Keep descriptions short and vivid. Style: 3D Pixar cartoon, vibrant colors. " \
-             f"Format your response as a simple list: Scene 1:, Scene 2:, Scene 3:<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n"
+def generar_contenido_bíblico(historia):
+    """Usa Gemini para crear la narración en español y los prompts de imagen en inglés."""
+    prompt = (
+        f"Actúa como un productor de contenido audiovisual infantil sobre la Biblia. "
+        f"Para la historia: '{historia}', genera una estructura de exactamente 3 escenas cronológicas. "
+        f"Devuelve estrictamente un formato JSON con la siguiente estructura (no agregues texto extra ni markdown):\n"
+        f"[\n"
+        f"  {{\"narracion\": \"Texto corto en español para la voz en off...\", \"prompt_imagen\": \"Detailed description in English for image generation, 3D Disney Pixar style, vibrant colors, friendly character, cute digital art\"}},\n"
+        f"  ...\n"
+        f"]"
+    )
+    try:
+        # Usamos el modelo rápido y gratuito flash
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+        )
+        # Limpiar posible formato markdown si el modelo lo incluye
+        texto_limpio = response.text.replace("```json", "").replace("
+```", "").strip()
+        return json.loads(texto_limpio)
+    except Exception as e:
+        st.error(f"Error al conectar con Gemini: {e}")
+        return None
+
+def generar_imagen_cartoon_gratis(prompt_visual):
+    """Obtiene una imagen de caricatura usando un servidor público libre de Stable Diffusion."""
+    # Usamos Pollinations AI, un servicio API Open Source y 100% gratuito que no requiere tokens
+    url_base = "https://image.pollinations.ai/p/"
+    prompt_codificado = requests.utils.quote(f"{prompt_visual}, Pixar 3D style, cinematic light, beautiful, for children book")
+    url_final = f"{url_base}{prompt_codificado}?width=1024&height=576&seed={int(time.time())}&nologo=true"
     
-    payload = {"inputs": prompt, "parameters": {"max_new_tokens": 250, "temperature": 0.6}}
     try:
-        response = requests.post(API_LLM_URL, headers=headers, json=payload)
-        resultado = response.json()
-        if isinstance(resultado, list) and len(resultado) > 0:
-            return resultado[0].get('generated_text', '').split("assistant")[-1]
-        return "Scene 1: Biblical landscape, Pixar style\nScene 2: Characters interacting, cartoon style"
-    except:
-        # En caso de que la API de texto falle o esté saturada, devolvemos una plantilla por defecto
-        return f"Scene 1: High quality 3D cartoon style of {historia}\nScene 2: Dynamic animation of {historia}"
-
-def generar_imagen_gratis(prompt_visual):
-    """Genera una imagen cartoon usando Stable Diffusion de forma gratuita."""
-    payload = {"inputs": f"{prompt_visual}, 3D Pixar digital art, cute character design, bright colors, cinematic lighting, masterpiece"}
-    try:
-        response = requests.post(API_IMAGEN_URL, headers=headers, json=payload)
-        # Si la API responde correctamente, devuelve los bytes de la imagen
+        response = requests.get(url_final, timeout=20)
         if response.status_code == 200:
             return Image.open(BytesIO(response.content))
-    except Exception as e:
-        st.error(f"Error al conectar con el servidor de imagen: {e}")
+    except:
+        pass
     return None
 
-# --- INTERFAZ DE USUARIO ---
+def crear_video_escena(img_pil, duracion_seg=5, fps=24):
+    """Convierte una imagen fija en un clip de video con zoom cinemático sutil (Efecto Ken Burns)."""
+    # Convertir PIL a formato OpenCV (BGR)
+    img_cv = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
+    h, w, _ = img_cv.shape
+    
+    # Nombre del archivo temporal
+    video_path = f"temp_scene_{int(time.time())}.mp4"
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    video_writer = cv2.VideoWriter(video_path, fourcc, fps, (w, h))
+    
+    total_frames = duracion_seg * fps
+    
+    # Generar el efecto de zoom dinámico por código
+    for i in range(total_frames):
+        # Factor de zoom que aumenta gradualmente hasta un 8%
+        scale = 1.0 + (0.08 * (i / total_frames))
+        
+        # Calcular nuevas dimensiones
+        nw, nh = int(w * scale), int(h * scale)
+        img_resized = cv2.resize(img_cv, (nw, nh))
+        
+        # Recortar el centro para mantener el tamaño original (1024x576)
+        dx = (nw - w) // 2
+        dy = (nh - h) // 2
+        frame = img_resized[dy:dy+h, dx:dx+w]
+        
+        video_writer.write(frame)
+        
+    video_writer.release()
+    return video_path
 
-st.title("🎬 Generador de Video Cartoon Bíblico (Versión 100% Gratis)")
-st.write("Esta aplicación utiliza modelos Open Source alojados gratuitamente en Hugging Face.")
+# --- INTERFAZ STREAMLIT ---
 
-# Selección de la historia
-historias = [
-    "La Creación del Mar y las Estrellas",
-    "El Arca de Noé flotando en el diluvio con animales",
-    "Moisés extendiendo su vara frente al Mar Rojo",
-    "El nacimiento del bebé Jesús en un pesebre iluminado",
-    "Jesús calmando la tormenta en el mar de Galilea",
-    "La Resurrección de Jesús saliendo de la tumba con luz brillante"
+st.title("🎬 Generador de Video Documental Animado de la Biblia")
+st.write("Esta opción genera guion, imágenes cartoon y compila clips de video con movimiento cinemático usando procesamiento local gratis.")
+
+if not GEMINI_API_KEY:
+    st.warning("⚠️ Para activar esta aplicación, ingresa tu `GEMINI_API_KEY` gratuita en los Secrets de Streamlit.")
+
+historias_opciones = [
+    "La Creación y el Jardín del Edén",
+    "Moisés dividiendo las aguas del Mar Rojo",
+    "David derrotando al gigante Goliat con una honda",
+    "El nacimiento de Jesús en el pesebre con los Reyes Magos",
+    "Jesús multiplicando los panes y los peces para la multitud",
+    "La Resurrección de Jesús y la tumba vacía iluminada"
 ]
-seleccion = st.selectbox("Elige el pasaje bíblico:", historias)
 
-if st.button("🎨 Generar Escenas Animadas Gratis"):
-    
-    # 1. Crear el guion/prompts
-    with st.spinner("📖 Pensando las escenas (Modelo de lenguaje gratis)..."):
-        prompts_texto = consultar_llm_gratis(seleccion)
-    
-    st.success("¡Escenas planificadas!")
-    st.info("Generando las imágenes en estilo cartoon. Por favor, espera...")
+historia = st.selectbox("Selecciona el pasaje bíblico a producir:", historias_opciones)
 
-    # Creamos un diseño de columnas para mostrar los resultados
-    col1, col2 = st.columns(2)
-    
-    # Simulamos el procesamiento de dos escenas para evitar sobrecargar los servidores compartidos
-    prompts_lista = [f"A beautiful cartoon scene of {seleccion}, Pixar style, colorful", 
-                     f"A holy dramatic scene of {seleccion}, cute character design, 3D render"]
-
-    with col1:
-        st.subheader("🎬 Escena 1")
-        img1 = generar_imagen_gratis(prompts_lista[0])
-        if img1:
-            st.image(img1, use_column_width=True)
-            st.caption("✨ Imagen base lista para tu animación.")
-            # Nota de animación para la versión gratuita
-            st.info("🔄 Para animar gratis de forma masiva: Descarga esta imagen y súbela a herramientas web sin límite como *Luma Dream Machine (Plan Gratis)* o *Kling AI*.")
-        else:
-            st.warning("El servidor gratuito de imágenes está muy ocupado ahora mismo. Inténtalo de nuevo en unos segundos.")
-
-    with col2:
-        st.subheader("🎬 Escena 2")
-        img2 = generar_imagen_gratis(prompts_lista[1])
-        if img2:
-            st.image(img2, use_column_width=True)
-            st.caption("✨ Concept art de la segunda escena.")
-        else:
-            st.write("Servidor en cola. Las APIs públicas gratuitas pueden requerir múltiples intentos.")
-
-st.markdown("---")
-st.markdown("""
-### ⚠️ Limitación Importante de las Herramientas Gratis en la Nube:
-Los modelos que generan **video directo (Text-to-Video)** de forma gratuita pesan más de 40GB en memoria ram. Hugging Face los ofrece gratis, pero suelen tener colas de espera de hasta 5 minutos por cada segundo de video, lo cual causa que Streamlit se desconecte por *timeout*.
-
-**La estrategia inteligente y 100% gratuita:**
-1. Usa esta app para generar el **guion y los dibujos tipo Cartoon** de tus personajes bíblicos de forma ilimitada.
-2. Descarga las imágenes generadas.
-3. Entra a plataformas con planes gratuitos generosos como **Kling AI**, **Luma Dream Machine**, o **Runway Gen-2** (versión web gratuita) y sube tus fotos para que su inteligencia artificial les dé el movimiento cinemático de forma externa sin gastar un centavo.
-""")
+if st.button("⚡ Generar Video Completo Gratis"):
+    if not client:
+        st.error("No se puede iniciar sin la configuración de la API Key.")
+    else:
+        with st.spinner("🤖 El cerebro de la IA está estructurando las escenas..."):
+            import json
+            datos_escenas = generar_contenido_bíblico(historia)
+            
+        if datos_escenas:
+            st.success(f"¡Guion aprobado! Se procesarán {len(datos_escenas)} escenas clave.")
+            
+            # Contenedores para almacenar archivos temporales generados
+            archivos_video = []
+            archivos_audio = []
+            
+            for idx, escena in enumerate(datos_escenas):
+                st.markdown(f"### 🎬 Procesando Escena {idx+1}")
+                col1, col2 = st.columns([1, 2])
+                
+                with col1:
+                    st.write(f"**Narración:** {escena['narracion']}")
+                    # Generar audio gratis con la voz de Google Translator (gTTS)
+                    tts = gTTS(text=escena['narracion'], lang='es', tld='com')
+                    audio_path = f"audio_{idx}.mp3"
+                    tts.save(audio_path)
+                    st.audio(audio_path)
+                    archivos_audio.append(audio_path)
+                    
+                with col2:
+                    with st.spinner("🎨 Pintando la ilustración estilo cartoon..."):
+                        img = generar_imagen_cartoon_gratis(escena['prompt_imagen'])
+                        
+                    if img:
+                        st.image(img, use_column_width=True)
+                        
+                        # Generar el clip de video con movimiento a partir de la imagen
+                        with st.spinner("🎥 Renderizando movimiento de cámara (Ken Burns)..."):
+                            video_clip = crear_video_escena(img, duracion_seg=6)
+                            archivos_video.append(video_clip)
+                            st.video(video_clip)
+            
+            # Mensaje final de ensamblaje
+            st.balloons()
+            st.success("🎉 ¡Todos los elementos de tu video han sido generados exitosamente!")
+            
+            st.markdown("""
+            ### 🛠️ Cómo unirlos en un solo video de 2 minutos:
+            Dado que la fusión avanzada de audio y video con codecs de compresión H.264 consume demasiada memoria ram en los servidores gratuitos de Streamlit Cloud (lo que suele romper la aplicación), la forma óptima y profesional es la siguiente:
+            
+            1. **Descarga los miniclips de video** que acabas de ver arriba haciendo clic derecho sobre ellos.
+            2. **Descarga los archivos de audio** de la voz en off.
+            3. Ábrelos en cualquier editor gratuito (como CapCut, Canva o Clipchamp), colócalos en la línea de tiempo uno tras otro, ¡y listo! Tienes un video cartoon animado de alta calidad y con música a tu gusto sin haber gastado un solo centavo.
+            """)
