@@ -3,6 +3,7 @@ import requests
 import os
 import time
 import urllib.parse
+import random
 from gtts import gTTS
 
 # Importaciones clásicas de MoviePy (Estables con versión 1.0.3 en requirements.txt)
@@ -15,10 +16,8 @@ from io import BytesIO
 st.set_page_config(page_title="Creador de Videos Bíblicos", page_icon="📖", layout="wide")
 
 # ----------------------------------------------------------------------
-# CONTENIDO BÍBLICO Y TRADUCCIONES
+# CONTENIDO BÍBLICO Y TRADUCCIONES TRADUCIDAS PARA OPTIMIZAR LA IA
 # ----------------------------------------------------------------------
-
-# Mapeo en inglés para que los servidores de Pollinations generen arte espectacular
 DICCIONARIO_TRADUCCION = {
     "En el principio, Dios creó los cielos y la tierra, y todo estaba en oscuridad.": "In the beginning, God created the heavens and the earth, deep space cosmic dark void, cinematic biblical art",
     "Entonces Dios dijo: Sea la luz, y la luz separó el día de la noche.": "God saying let there be light, holy divine light splitting the dark night, creation of universe",
@@ -66,32 +65,34 @@ HISTORIAS = {
 }
 
 # ----------------------------------------------------------------------
-# FUNCIONES DE GENERACIÓN (POLLINATIONS API)
+# FUNCIONES DE GENERACIÓN (NUEVA API GLOBAL DE POLLINATIONS)
 # ----------------------------------------------------------------------
 
 def query_pollinations(prompt_es):
-    """Genera imágenes usando la infraestructura ilimitada de Pollinations.ai"""
+    """Genera imágenes usando el nuevo endpoint gen.pollinations.ai sin restricciones"""
     prompt_en = DICCIONARIO_TRADUCCION.get(prompt_es, f"Biblical illustration of: {prompt_es}")
-    
-    # Inyectamos parámetros de calidad artística e indicamos relación de aspecto 16:9 para video (1024x576)
     style_prompt = f"Cinematic biblical art, dramatic lighting, epic historical oil painting, highly detailed, masterwork, {prompt_en}"
     
-    # Codificar el texto para URL de forma segura
+    # Codificar texto de forma segura para URLs
     prompt_encoded = urllib.parse.quote(style_prompt)
-    
-    # Endpoint público de Pollinations usando el modelo estable de Flux
-    url = f"https://image.pollinations.ai/p/{prompt_encoded}?width=1024&height=576&model=flux&nologo=true"
     
     max_intentos = 3
     for intento in range(max_intentos):
+        # Usamos una semilla aleatoria por intento para evitar caché rota y forzar regeneración limpia
+        seed = random.randint(1, 999999)
+        
+        # Sintaxis moderna oficial: gen.pollinations.ai/image/ con parámetros de tamaño nativos (16:9)
+        url = f"https://gen.pollinations.ai/image/{prompt_encoded}?width=1248&height=704&model=flux&seed={seed}"
+        
         try:
-            response = requests.get(url, timeout=30)
-            if response.status_code == 200:
+            response = requests.get(url, timeout=25)
+            if response.status_code == 200 and len(response.content) > 5000:
                 return Image.open(BytesIO(response.content))
-            else:
-                time.sleep(3)
+            
+            # Pequeña pausa táctica si el servidor devuelve un código erróneo
+            time.sleep(2)
         except Exception:
-            time.sleep(3)
+            time.sleep(2)
             
     return None
 
@@ -114,11 +115,14 @@ def crear_video_biblico(escenas, nombre_salida):
         tts = gTTS(text=texto, lang='es', tld='com.mx')
         tts.save(audio_path)
         
-        # 2. Generar Imagen (Pollinations - Rápido y Estable)
+        # 2. Generar Imagen (Nueva API - Altamente Resistente)
         imagen = query_pollinations(texto)
+        
+        # Si por alguna razón la API falla por completo, generamos una imagen de color neutro como respaldo
+        # Esto previene que la renderización de 3 minutos se muera a mitad de camino.
         if imagen is None:
-            status_text.error(f"⛔ Error crítico al obtener la imagen de la Escena {idx+1}. Interrumpiendo.")
-            return None
+            st.warning(f"⚠️ El servidor de imágenes tardó en responder en la Escena {idx+1}. Creando un fondo de escena alternativo...")
+            imagen = Image.new('RGB', (1248, 704), color=(40, 30, 25))
             
         img_path = f"{temp_dir}/image_{idx}.png"
         imagen.save(img_path)
@@ -133,7 +137,6 @@ def crear_video_biblico(escenas, nombre_salida):
         clips_de_video.append(video_clip)
         progreso.progress(int((idx + 1) / total_escenas * 100))
         
-        # Un pequeño respiro técnico de un segundo es suficiente para Pollinations
         time.sleep(1)
 
     status_text.write("🎥 Ensamblando todos los clips en el archivo MP4 final (2-3 minutos)...")
@@ -160,9 +163,9 @@ def crear_video_biblico(escenas, nombre_salida):
 # ----------------------------------------------------------------------
 
 st.title("📖 Creador Automático de Videos Bíblicos")
-st.subheader("Versión estable e ilimitada de alto rendimiento (Sin Tokens).")
+st.subheader("Versión estable de alto rendimiento libre de tokens.")
 
-st.info("💡 Esta versión utiliza servidores alternativos optimizados. No necesitas configurar claves ni tokens en la barra lateral.")
+st.info("💡 Servidores de imágenes actualizados. La generación procesará las escenas secuencialmente sin cortes.")
 
 categoria = st.selectbox("Selecciona la historia bíblica para el video largo:", list(HISTORIAS.keys()))
 escenas_seleccionadas = HISTORIAS[categoria]
@@ -174,7 +177,7 @@ with st.expander("Ver pasajes cronológicos que compondrán el video"):
 if st.button("🚀 Iniciar Generación de Video"):
     with st.spinner("La IA está renderizando las imágenes y locuciones simultáneamente. Por favor, espera..."):
         
-        # Multiplicamos la secuencia x3 para alcanzar cómodamente la meta de 2 a 3 minutos
+        # Duplicamos la secuencia de escenas para estirar la duración del video final a 2-3 minutos
         escenas_extendidas = escenas_seleccionadas * 3  
         nombre_archivo = f"{categoria.replace(' ', '_').replace(':', '')}.mp4"
         
